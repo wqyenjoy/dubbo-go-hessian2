@@ -20,13 +20,15 @@ package hessian
 import (
 	"fmt"
 	"sync"
-)
 
-import (
 	"github.com/apache/dubbo-go-hessian2/java_exception"
 )
 
-var exceptionCheckMutex sync.Mutex
+var (
+	exceptionCheckMutex sync.Mutex
+	// 保存已注册的异常类型，避免重复注册
+	registeredExceptions = make(map[string]bool)
+)
 
 func checkAndGetException(cls *ClassInfo) (*structInfo, bool) {
 	if len(cls.fieldNameList) < 4 {
@@ -46,10 +48,19 @@ func checkAndGetException(cls *ClassInfo) (*structInfo, bool) {
 	if count == 4 {
 		exceptionCheckMutex.Lock()
 		defer exceptionCheckMutex.Unlock()
+
+		// 检查是否已注册该异常
 		if throwable, ok = getStructInfo(cls.javaName); ok {
 			return throwable, true
 		}
-		RegisterPOJO(newBizException(cls.javaName))
+
+		// 检查是否已经尝试过注册
+		if _, registered := registeredExceptions[cls.javaName]; !registered {
+			RegisterPOJO(newBizException(cls.javaName))
+			registeredExceptions[cls.javaName] = true
+		}
+
+		// 再次尝试获取
 		if throwable, ok = getStructInfo(cls.javaName); ok {
 			return throwable, true
 		}
