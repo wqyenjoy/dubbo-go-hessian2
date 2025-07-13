@@ -24,14 +24,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-import (
-	perrors "github.com/pkg/errors"
-)
-
-import (
 	"github.com/apache/dubbo-go-hessian2/java_exception"
+	perrors "github.com/pkg/errors"
 )
 
 var (
@@ -419,12 +414,21 @@ func (d *Decoder) readUntypedList(tag byte) (interface{}, error) {
 		}
 		length = int(ii)
 	} else if isVariableArr {
+		// For variable length arrays, pre-allocate with a reasonable capacity
 		length = 0
 	} else {
 		return nil, perrors.Errorf("error untyped list tag: %x", tag)
 	}
 
-	ary := make([]interface{}, length)
+	// Pre-allocate with proper capacity
+	var ary []interface{}
+	if isVariableArr {
+		// For variable length arrays, pre-allocate with a reasonable capacity
+		ary = make([]interface{}, 0, 16)
+	} else {
+		ary = make([]interface{}, length)
+	}
+
 	aryValue := reflect.ValueOf(ary)
 	holder := d.appendRefs(aryValue)
 

@@ -268,7 +268,17 @@ func (d *Decoder) decMap(flag int32) (interface{}, error) {
 		}
 
 		if typ.Kind() == reflect.Map {
-			instValue = reflect.MakeMap(typ)
+			// Estimate map size by peeking ahead
+			size := 16 // Default size if we can't estimate
+			if d.len() >= 2 {
+				// Try to estimate map size by looking at the first byte
+				// This is just a heuristic, not exact
+				peek := d.peek(2)
+				if len(peek) >= 2 && peek[0] >= BC_INT_ZERO && peek[0] <= BC_INT_SHORT_ZERO {
+					size = int(peek[0] - BC_INT_ZERO)
+				}
+			}
+			instValue = reflect.MakeMapWithSize(typ, size)
 		} else {
 			instValue = reflect.New(typ).Elem()
 		}
@@ -304,7 +314,8 @@ func (d *Decoder) decMap(flag int32) (interface{}, error) {
 		}
 		return instValue.Interface(), nil
 	case tag == BC_MAP_UNTYPED:
-		m = make(map[interface{}]interface{})
+		// Pre-allocate map with a reasonable size
+		m = make(map[interface{}]interface{}, 16)
 		d.appendRefs(m)
 		for d.peekByte() != BC_END {
 			k, err = d.Decode()

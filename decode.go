@@ -22,9 +22,7 @@ import (
 	"bytes"
 	"io"
 	"reflect"
-)
 
-import (
 	perrors "github.com/pkg/errors"
 )
 
@@ -112,7 +110,9 @@ func NewCheapDecoderWithSkip(b []byte) *Decoder {
 func (d *Decoder) Clean() {
 	d.typeRefs = &TypeRefs{records: map[string]bool{}}
 	d.refs = nil
+	d.refHolders = nil
 	d.classInfoList = nil
+	d.decodeRecursiveDepth = 0
 }
 
 /////////////////////////////////////////
@@ -255,6 +255,9 @@ func (d *Decoder) Decode() (interface{}, error) {
 		for _, holder := range d.refHolders {
 			holder.notify()
 		}
+		// Clear refHolders after notification to prevent memory leak
+		// Keep the underlying array for reuse but reset length to 0
+		d.refHolders = d.refHolders[:0]
 	}
 
 	return EnsureRawAny(v), nil

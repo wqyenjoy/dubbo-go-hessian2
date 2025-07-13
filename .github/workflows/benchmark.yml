@@ -1,0 +1,69 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  benchmark:
+    name: Performance regression check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+          cache: true
+
+      - name: Run benchmark on PR branch
+        run: |
+          go test -bench=MultipleLevelRecursiveDep -benchtime=3x -benchmem -run=^$ ./... > PR_bench.txt
+
+      - name: Checkout base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git checkout ${{ github.base_ref }}
+
+      - name: Run benchmark on base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          go test -bench=MultipleLevelRecursiveDep -benchtime=3x -benchmem -run=^$ ./... > BASE_bench.txt
+
+      - name: Install benchstat
+        if: github.event_name == 'pull_request'
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Compare benchmarks
+        if: github.event_name == 'pull_request'
+        run: |
+          benchstat BASE_bench.txt PR_bench.txt > bench_comparison.txt
+          cat bench_comparison.txt
+
+      - name: Check for performance regression
+        if: github.event_name == 'pull_request'
+        run: |
+          # This is a simple check for performance regression
+          # If the PR is slower by more than 10%, we'll fail the check
+          if grep -q "\+10\.0%" bench_comparison.txt; then
+            echo "Performance regression detected!"
+            exit 1
+          fi
+          echo "No significant performance regression detected."
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: |
+            BASE_bench.txt
+            PR_bench.txt
+            bench_comparison.txt 

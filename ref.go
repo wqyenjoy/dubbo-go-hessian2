@@ -20,9 +20,7 @@ package hessian
 import (
 	"reflect"
 	"unsafe"
-)
 
-import (
 	perrors "github.com/pkg/errors"
 )
 
@@ -84,6 +82,8 @@ func (d *Decoder) appendRefs(v interface{}) *_refHolder {
 	if vv.Kind() == reflect.Slice || vv.Kind() == reflect.Array {
 		holder = &_refHolder{
 			value: vv,
+			// Pre-allocate destinations to reduce allocations
+			destinations: make([]reflect.Value, 0, 8),
 		}
 		// pack holder value
 		v = reflect.ValueOf(holder)
