@@ -424,8 +424,11 @@ func (d *Decoder) readUntypedList(tag byte) (interface{}, error) {
 	var ary []interface{}
 	if isVariableArr {
 		// For variable length arrays, pre-allocate with a reasonable capacity
+		// Use 16 as a default starting capacity to avoid frequent reallocations
 		ary = make([]interface{}, 0, 16)
 	} else {
+		// For fixed length arrays, allocate exactly the right size
+		// This avoids any reallocation during append operations
 		ary = make([]interface{}, length)
 	}
 

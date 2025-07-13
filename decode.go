@@ -35,6 +35,8 @@ type Decoder struct {
 	typeRefs      *TypeRefs
 	classInfoList []*ClassInfo
 	isSkip        bool
+	// pooledBuffer holds a reference to a buffer from the pool if one was used
+	pooledBuffer []byte
 
 	// In strict mode, a class data can be decoded only when the class is registered, otherwise error returned.
 	// In non-strict mode, a class data will be decoded to a map when the class is not registered.
@@ -64,6 +66,28 @@ var (
 // NewDecoder generate a decoder instance
 func NewDecoder(b []byte) *Decoder {
 	return &Decoder{reader: bufio.NewReader(bytes.NewReader(b)), typeRefs: &TypeRefs{records: map[string]bool{}}}
+}
+
+// NewDecoderWithBuffer generate a decoder instance with a pooled buffer
+// This is more efficient for large payloads as it reuses a large buffer
+func NewDecoderWithBuffer(b []byte) *Decoder {
+	// If the input is large enough, use a pooled buffer
+	if len(b) > 4096 {
+		buf := GetBuffer()
+		if cap(buf) >= len(b) {
+			buf = buf[:len(b)]
+			copy(buf, b)
+			return &Decoder{
+				reader:   bufio.NewReader(bytes.NewReader(buf)),
+				typeRefs: &TypeRefs{records: map[string]bool{}},
+			}
+		}
+		// If buffer is too small, put it back and use a new one
+		PutBuffer(buf)
+	}
+
+	// Fall back to regular decoder
+	return NewDecoder(b)
 }
 
 // NewStrictDecoder generates a strict mode decoder instance.
@@ -113,6 +137,9 @@ func (d *Decoder) Clean() {
 	d.refHolders = nil
 	d.classInfoList = nil
 	d.decodeRecursiveDepth = 0
+
+	// We don't clear pooledBuffer here as it's still in use by the reader
+	// It will be cleaned up in Reset() or PutDecoder()
 }
 
 /////////////////////////////////////////
@@ -120,6 +147,12 @@ func (d *Decoder) Clean() {
 /////////////////////////////////////////
 
 func (d *Decoder) Reset(b []byte) *Decoder {
+	// If we have a pooled buffer, return it to the pool
+	if d.pooledBuffer != nil {
+		PutBuffer(d.pooledBuffer)
+		d.pooledBuffer = nil
+	}
+
 	// reuse reader buf, avoid allocate
 	d.reader.Reset(bytes.NewReader(b))
 	d.Clean()
@@ -252,12 +285,19 @@ func (d *Decoder) Decode() (interface{}, error) {
 	// d.refHolders.notify() should run only at the outermost level
 	// to prevent performance issue
 	if d.decodeRecursiveDepth == 1 {
-		for _, holder := range d.refHolders {
+		for i, holder := range d.refHolders {
 			holder.notify()
+			// Explicitly set each element to nil to help GC
+			d.refHolders[i] = nil
 		}
 		// Clear refHolders after notification to prevent memory leak
-		// Keep the underlying array for reuse but reset length to 0
-		d.refHolders = d.refHolders[:0]
+		// If refHolders capacity is too large, set it to nil to allow GC to reclaim the memory
+		if cap(d.refHolders) > 1024 {
+			d.refHolders = nil
+		} else {
+			// Otherwise just reset length to 0 but keep the underlying array for reuse
+			d.refHolders = d.refHolders[:0]
+		}
 	}
 
 	return EnsureRawAny(v), nil

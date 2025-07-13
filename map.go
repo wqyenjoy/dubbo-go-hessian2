@@ -270,14 +270,28 @@ func (d *Decoder) decMap(flag int32) (interface{}, error) {
 		if typ.Kind() == reflect.Map {
 			// Estimate map size by peeking ahead
 			size := 16 // Default size if we can't estimate
-			if d.len() >= 2 {
-				// Try to estimate map size by looking at the first byte
-				// This is just a heuristic, not exact
-				peek := d.peek(2)
-				if len(peek) >= 2 && peek[0] >= BC_INT_ZERO && peek[0] <= BC_INT_SHORT_ZERO {
-					size = int(peek[0] - BC_INT_ZERO)
+
+			// Try to estimate map size by examining the next few bytes
+			// This helps reduce map resizing during decoding
+			if d.len() >= 4 {
+				peek := d.peek(4)
+				if len(peek) >= 2 {
+					// Check if the next byte looks like a length indicator
+					if peek[0] >= BC_INT_ZERO && peek[0] <= INT_DIRECT_MAX {
+						// Simple case: small integer directly encoded in the tag
+						size = int(peek[0] - BC_INT_ZERO)
+					} else if peek[0] == BC_INT && len(peek) >= 4 {
+						// Integer case: read the next 4 bytes as an int32
+						// This is just an estimate, so we don't need to be exact
+						size = int(peek[1])<<16 | int(peek[2])<<8 | int(peek[3])
+						if size < 0 || size > 10000 {
+							// Sanity check - if the size looks wrong, use default
+							size = 16
+						}
+					}
 				}
 			}
+
 			instValue = reflect.MakeMapWithSize(typ, size)
 		} else {
 			instValue = reflect.New(typ).Elem()
@@ -314,8 +328,27 @@ func (d *Decoder) decMap(flag int32) (interface{}, error) {
 		}
 		return instValue.Interface(), nil
 	case tag == BC_MAP_UNTYPED:
-		// Pre-allocate map with a reasonable size
-		m = make(map[interface{}]interface{}, 16)
+		// Estimate map size to avoid resizing
+		size := 16 // Default size
+
+		// Try to peek ahead to estimate size
+		if d.len() >= 2 {
+			peek := d.peek(2)
+			if len(peek) >= 1 {
+				// Simple heuristic: if next byte is a small integer,
+				// it might be indicating the number of entries
+				if peek[0] >= BC_INT_ZERO && peek[0] <= INT_DIRECT_MAX {
+					size = int(peek[0] - BC_INT_ZERO)
+					// Sanity check
+					if size < 1 {
+						size = 16
+					}
+				}
+			}
+		}
+
+		// Pre-allocate map with the estimated size
+		m = make(map[interface{}]interface{}, size)
 		d.appendRefs(m)
 		for d.peekByte() != BC_END {
 			k, err = d.Decode()
