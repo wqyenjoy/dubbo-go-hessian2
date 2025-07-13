@@ -289,6 +289,11 @@ func (d *Decoder) decMap(flag int32) (interface{}, error) {
 							size = 16
 						}
 					}
+
+					// Limit capacity to avoid over-allocation
+					if size > 64 {
+						size = 64
+					}
 				}
 			}
 
@@ -342,6 +347,10 @@ func (d *Decoder) decMap(flag int32) (interface{}, error) {
 					// Sanity check
 					if size < 1 {
 						size = 16
+					}
+					// Limit capacity to avoid over-allocation
+					if size > 64 {
+						size = 64
 					}
 				}
 			}

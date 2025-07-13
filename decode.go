@@ -132,10 +132,30 @@ func NewCheapDecoderWithSkip(b []byte) *Decoder {
 // Clean clean the Decoder (room) for a new object decoding.
 // Notice it won't reset reader buffer and will continue to read data from it.
 func (d *Decoder) Clean() {
+	// Thoroughly clean all references and data structures
 	d.typeRefs = &TypeRefs{records: map[string]bool{}}
-	d.refs = nil
-	d.refHolders = nil
-	d.classInfoList = nil
+
+	// Clear references but preserve capacity if reasonable
+	if d.refs != nil && cap(d.refs) <= 256 {
+		d.refs = d.refs[:0]
+	} else {
+		d.refs = nil
+	}
+
+	// Clear refHolders but preserve capacity if reasonable
+	if d.refHolders != nil && cap(d.refHolders) <= 256 {
+		d.refHolders = d.refHolders[:0]
+	} else {
+		d.refHolders = nil
+	}
+
+	// Clear classInfoList but preserve capacity if reasonable
+	if d.classInfoList != nil && cap(d.classInfoList) <= 64 {
+		d.classInfoList = d.classInfoList[:0]
+	} else {
+		d.classInfoList = nil
+	}
+
 	d.decodeRecursiveDepth = 0
 
 	// We don't clear pooledBuffer here as it's still in use by the reader
@@ -149,7 +169,11 @@ func (d *Decoder) Clean() {
 func (d *Decoder) Reset(b []byte) *Decoder {
 	// If we have a pooled buffer, return it to the pool
 	if d.pooledBuffer != nil {
-		PutBuffer(d.pooledBuffer)
+		if cap(d.pooledBuffer) > BufferSizeThreshold {
+			PutLargeBuffer(d.pooledBuffer)
+		} else {
+			PutBuffer(d.pooledBuffer)
+		}
 		d.pooledBuffer = nil
 	}
 

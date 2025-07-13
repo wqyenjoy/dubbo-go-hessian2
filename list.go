@@ -427,9 +427,21 @@ func (d *Decoder) readUntypedList(tag byte) (interface{}, error) {
 		// Use 16 as a default starting capacity to avoid frequent reallocations
 		ary = make([]interface{}, 0, 16)
 	} else {
-		// For fixed length arrays, allocate exactly the right size
-		// This avoids any reallocation during append operations
-		ary = make([]interface{}, length)
+		// For fixed length arrays, allocate with a reasonable capacity
+		// Limit capacity to avoid over-allocation for very large lists
+		capHint := length
+		if length > 0 {
+			// Limit capacity to 64 elements to avoid over-allocation
+			// Go will use different growth strategies based on size
+			if length <= 64 {
+				capHint = length
+			} else {
+				// For larger lists, allocate a reasonable capacity
+				// that balances memory usage and performance
+				capHint = 64 + (length-64)/2
+			}
+		}
+		ary = make([]interface{}, length, capHint)
 	}
 
 	aryValue := reflect.ValueOf(ary)
